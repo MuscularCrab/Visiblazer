@@ -136,8 +136,22 @@ function buildArgs(o) {
     a.push('-vf', 'vflip')
   }
   if (o.encoder === 'h264_nvenc') {
-    a.push('-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-b:v', `${o.bitrateK}k`,
-      '-maxrate', `${Math.round(o.bitrateK * 1.5)}k`, '-bufsize', `${o.bitrateK * 2}k`, '-pix_fmt', 'yuv420p')
+    // Targeted-quality VBR on Ada NVENC: -cq holds a constant visual quality and
+    // the bitrate cap bounds peaks, so simple/dark frames spend fewer bits and
+    // bursts get the full budget. Spatial/temporal AQ + lookahead are the big
+    // anti-banding wins for this content (dark gradients, bloom). B-frames with
+    // a middle ref pyramid raise efficiency at no meaningful speed cost on Ada.
+    // p7 + fullres: highest-quality preset with full-resolution rate-control
+    // analysis. On Ada this still encodes well above realtime, so for an offline
+    // master there's no reason to trade quality for speed. (Overridable via env.)
+    const preset = process.env.VISIBLAZER_NVENC_PRESET || 'p7'
+    const multipass = process.env.VISIBLAZER_NVENC_MULTIPASS || 'fullres'
+    a.push('-c:v', 'h264_nvenc', '-preset', preset, '-tune', 'hq',
+      '-rc', 'vbr', '-cq', '19', '-b:v', `${o.bitrateK}k`,
+      '-maxrate', `${Math.round(o.bitrateK * 1.5)}k`, '-bufsize', `${o.bitrateK * 2}k`,
+      '-multipass', multipass, '-rc-lookahead', '20',
+      '-spatial-aq', '1', '-aq-strength', '8', '-temporal-aq', '1',
+      '-bf', '3', '-b_ref_mode', 'middle', '-profile:v', 'high', '-pix_fmt', 'yuv420p')
   } else {
     a.push('-c:v', 'libx264', '-preset', 'medium', '-b:v', `${o.bitrateK}k`, '-pix_fmt', 'yuv420p')
   }
