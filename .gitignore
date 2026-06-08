@@ -27,5 +27,8 @@ ffmpeg/linux/
 presets/*.json
 !presets/example.json
 
+# Claude Code session lock (transient session-id/pid, rewritten every run)
+.claude/scheduled_tasks.lock
+
 .DS_Store
 Thumbs.db
