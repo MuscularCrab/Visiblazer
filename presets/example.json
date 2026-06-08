@@ -1,0 +1,15 @@
+{
+  "style": "radial",
+  "bitrateK": 12000,
+  "ap": { "fftSize": 2048, "barCount": 96, "gain": 1.2, "smoothing": 0.6, "minDb": -70, "maxDb": -12 },
+  "visual": {
+    "primary": "#00e5ff", "secondary": "#ff00d4", "colorMode": "gradient",
+    "hueBase": 0.55, "hueSpread": 0.7,
+    "background": { "type": "gradient", "color": "#0a0f1c", "color2": "#05060a", "image": null },
+    "logo": { "path": null, "size": 0.22, "pulse": 0.4, "opacity": 1 },
+    "glow": 0.8, "barWidth": 0.6, "barLen": 0.55,
+    "radius": 0.16, "rotationSpeed": 0.03, "rotationOffset": 0, "mirror": true,
+    "waveAmp": 0.35, "thickness": 3
+  },
+  "bgPath": null, "logoPath": null
+}

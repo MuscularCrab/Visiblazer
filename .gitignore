@@ -1,0 +1,31 @@
+node_modules/
+dist/
+build/
+out/
+
+# render output + temp work
+output*
+*.mp4
+*.mkv
+tmp/
+*.pcm
+
+# test media + user assets (don't commit copyrighted audio or the logo)
+*.wav
+*.flac
+*.mp3
+*.aac
+*.ogg
+assets/logo*.png
+assets/bg*.png
+
+# bundled ffmpeg binaries (downloaded per platform, not committed)
+ffmpeg/win32/
+ffmpeg/linux/
+
+# user presets (keep the folder, ignore saved looks except samples)
+presets/*.json
+!presets/example.json
+
+.DS_Store
+Thumbs.db

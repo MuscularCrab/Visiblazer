@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npm *)",
+      "PowerShell(ffmpeg *)",
+      "PowerShell(\\(Get-Command ffmpeg -ErrorAction SilentlyContinue\\).Source; \"---\"; \\(Get-Command ffprobe -ErrorAction SilentlyContinue\\).Source)",
+      "PowerShell(winget list *)",
+      "PowerShell(& \"C:\\\\Program Files\\\\nodejs\\\\npm.cmd\" install)",
+      "PowerShell(Stop-Process *)"
+    ]
+  }
+}

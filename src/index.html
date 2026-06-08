@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' file: data: blob:; media-src file: blob:; img-src file: data: blob:;" />
+  <title>Visiblazer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <section id="stage">
+      <div id="canvasWrap">
+        <canvas id="view"></canvas>
+        <div id="decodeOverlay" class="overlay hidden">
+          <div class="box">
+            <div class="big">Decoding audio…</div>
+            <div class="bar"><div id="decodeFill"></div></div>
+          </div>
+        </div>
+        <div id="renderOverlay" class="overlay hidden">
+          <div class="box">
+            <div id="renderTitle" class="big">Rendering…</div>
+            <div class="bar"><div id="renderFill"></div></div>
+            <div id="renderStats" class="muted"></div>
+            <div class="row center">
+              <button id="cancelRender" class="btn danger">Cancel</button>
+              <button id="playResult" class="btn hidden">▶ Play</button>
+              <button id="revealResult" class="btn ghost hidden">Reveal</button>
+              <button id="closeOverlay" class="btn ghost hidden">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="transport">
+        <button id="playPause" class="btn" disabled>▶</button>
+        <input id="seek" type="range" min="0" max="1" step="0.0001" value="0" disabled />
+        <span id="time" class="mono">0:00 / 0:00</span>
+      </div>
+    </section>
+
+    <aside id="panel">
+      <div class="brand">Visiblazer <span id="encoderBadge" class="badge">…</span></div>
+      <div id="encoderMsg" class="muted small"></div>
+
+      <div class="group">
+        <button id="import" class="btn primary wide">Import audio (.wav / .flac / .mp3)</button>
+        <div class="kv"><span id="filename" class="muted">No file loaded</span><span id="duration" class="mono"></span></div>
+      </div>
+
+      <div class="group">
+        <label class="hdr">Style</label>
+        <select id="style">
+          <option value="radial">Radial bars + logo (NCS)</option>
+          <option value="ring">Ring — polar waveform (minimal)</option>
+          <option value="dots">Dots — reactive ring (minimal)</option>
+          <option value="linear">Linear spectrum bars</option>
+          <option value="waveform">Waveform / oscilloscope</option>
+        </select>
+      </div>
+
+      <div class="group">
+        <label class="hdr">Color</label>
+        <div class="row"><span>Mode</span>
+          <select id="colorMode">
+            <option value="gradient">Gradient</option>
+            <option value="solid">Solid</option>
+            <option value="hue">React to frequency (hue)</option>
+          </select>
+        </div>
+        <div class="row"><span>Primary</span><input id="primary" type="color" value="#00e5ff" /></div>
+        <div class="row"><span>Secondary</span><input id="secondary" type="color" value="#ff00d4" /></div>
+        <div class="row" data-show="hue"><span>Hue base</span><input id="hueBase" type="range" min="0" max="1" step="0.01" value="0.55" /></div>
+        <div class="row" data-show="hue"><span>Hue spread</span><input id="hueSpread" type="range" min="0" max="1" step="0.01" value="0.7" /></div>
+      </div>
+
+      <div class="group">
+        <label class="hdr">Spectrum</label>
+        <div class="row"><span>Bars</span><input id="barCount" type="range" min="16" max="256" step="2" value="96" /></div>
+        <div class="row"><span>Sensitivity</span><input id="gain" type="range" min="0.3" max="3" step="0.05" value="1.2" /></div>
+        <div class="row"><span>Smoothing</span><input id="smoothing" type="range" min="0" max="0.95" step="0.01" value="0.6" /></div>
+        <div class="row"><span>FFT size</span>
+          <select id="fftSize"><option>1024</option><option selected>2048</option><option>4096</option></select>
+        </div>
+      </div>
+
+      <div class="group">
+        <label class="hdr">Bars / shape</label>
+        <div class="row" data-show="radial linear dots"><span>Bar width</span><input id="barWidth" type="range" min="0.1" max="1" step="0.02" value="0.6" /></div>
+        <div class="row" data-show="radial linear dots"><span>Length</span><input id="barLen" type="range" min="0.1" max="1" step="0.02" value="0.6" /></div>
+        <div class="row" data-show="radial ring dots"><span>Inner radius</span><input id="radius" type="range" min="0.05" max="0.4" step="0.01" value="0.16" /></div>
+        <div class="row" data-show="radial ring dots"><span>Rotation /s</span><input id="rot" type="range" min="-0.5" max="0.5" step="0.005" value="0.03" /></div>
+        <div class="row" data-show="waveform ring"><span>Amplitude</span><input id="waveAmp" type="range" min="0.05" max="0.6" step="0.01" value="0.35" /></div>
+        <div class="row" data-show="waveform ring"><span>Thickness</span><input id="thickness" type="range" min="1" max="10" step="0.5" value="3" /></div>
+        <div class="row" data-show="radial linear dots"><span>Mirror / symmetry</span><input id="mirror" type="checkbox" checked /></div>
+      </div>
+
+      <div class="group">
+        <label class="hdr">Background</label>
+        <div class="row"><span>Type</span>
+          <select id="bgType"><option value="solid">Solid</option><option value="gradient">Gradient</option><option value="image">Image</option><option value="video">Video</option></select>
+        </div>
+        <div class="row" data-show="bg-solid bg-gradient"><span>Color</span><input id="bgColor" type="color" value="#06080f" /></div>
+        <div class="row" data-show="bg-gradient"><span>Color 2</span><input id="bgColor2" type="color" value="#10131c" /></div>
+        <div class="row" data-show="bg-image"><button id="bgImageBtn" class="btn ghost">Choose image…</button><button id="bgImageClear" class="btn ghost sm">×</button></div>
+        <div class="kv" data-show="bg-image"><span id="bgImageLabel" class="muted small">none</span></div>
+        <div class="row" data-show="bg-video"><button id="bgVideoBtn" class="btn ghost">Choose video…</button><button id="bgVideoClear" class="btn ghost sm">×</button></div>
+        <div class="kv" data-show="bg-video"><span id="bgVideoLabel" class="muted small">none</span></div>
+        <div class="row" data-show="bg-video"><span>Video opacity</span><input id="videoOpacity" type="range" min="0" max="1" step="0.02" value="0.6" /></div>
+        <div class="kv" data-show="bg-video"><span class="muted small">Visualizer is screened over the video as light. Lower opacity to push busy footage back.</span></div>
+      </div>
+
+      <div class="group">
+        <label class="hdr">Logo</label>
+        <div class="row"><button id="logoBtn" class="btn ghost">Choose PNG…</button><button id="logoClear" class="btn ghost sm">×</button></div>
+        <div class="kv"><span id="logoLabel" class="muted small">none</span></div>
+        <div class="row"><span>Size</span><input id="logoSize" type="range" min="0.05" max="0.6" step="0.01" value="0.22" /></div>
+        <div class="row"><span>Bass pulse</span><input id="logoPulse" type="range" min="0" max="1" step="0.02" value="0.4" /></div>
+        <div class="row"><span>Opacity</span><input id="logoOpacity" type="range" min="0" max="1" step="0.02" value="1" /></div>
+      </div>
+
+      <div class="group">
+        <label class="hdr">Glow / bloom</label>
+        <div class="row"><span>Intensity</span><input id="glow" type="range" min="0" max="2" step="0.05" value="0.7" /></div>
+      </div>
+
+      <div class="group">
+        <label class="hdr">Presets</label>
+        <div class="row"><input id="presetName" type="text" placeholder="Preset name" /><button id="savePreset" class="btn">Save</button></div>
+        <div class="row"><select id="presetList"><option value="">— load preset —</option></select><button id="deletePreset" class="btn ghost sm">×</button></div>
+      </div>
+
+      <div class="group render">
+        <label class="hdr">Output</label>
+        <div class="row"><span>Bitrate (Mbps)</span><input id="bitrate" type="range" min="2" max="40" step="1" value="12" /><span id="bitrateVal" class="mono">12</span></div>
+
+        <div class="testbox">
+          <div class="row"><span>Test start (s)</span><input id="testStart" type="number" min="0" value="0" /></div>
+          <div class="row"><span>Test length (s)</span><input id="testDur" type="number" min="1" max="60" value="8" /></div>
+          <button id="testRender" class="btn primary wide big-btn" disabled>⚡ Quick Test Render</button>
+        </div>
+
+        <div id="summary" class="muted small"></div>
+        <button id="fullRender" class="btn wide" disabled>Render Full Set →</button>
+      </div>
+    </aside>
+  </div>
+  <script type="module" src="ui.js"></script>
+</body>
+</html>

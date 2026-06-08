@@ -1,0 +1,38 @@
+{
+  "name": "visiblazer",
+  "version": "0.1.0",
+  "description": "Offline GPU audio visualizer that renders DJ sets to 1080p60 H.264 (NVENC).",
+  "author": "DJ Windy (djwindy.com)",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "probe": "electron electron/probe-cli.js",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.djwindy.visiblazer",
+    "productName": "Visiblazer",
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "ffmpeg", "to": "ffmpeg", "filter": ["**/*"] }
+    ],
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "AudioVideo"
+    }
+  }
+}
