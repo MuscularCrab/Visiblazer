@@ -10,6 +10,14 @@ const VIS = { radial, linear, waveform, ring, dots }
 const WAVE_STYLES = new Set(['waveform', 'ring'])   // styles that need time-domain samples
 const MODE = { TRIANGLES: 4, TRIANGLE_STRIP: 5, LINE_STRIP: 3 }
 
+// Build a well-formed file:// URL (triple slash, percent-encoded) so logo/bg
+// paths with spaces or special characters load reliably in every render process.
+function fileUrl(p) {
+  let s = String(p).replace(/\\/g, '/')
+  if (!s.startsWith('/')) s = '/' + s
+  return 'file://' + encodeURI(s).replace(/[#?]/g, (c) => '%' + c.charCodeAt(0).toString(16))
+}
+
 const SOLID_VS = `#version 300 es
 precision highp float;
 layout(location=0) in vec2 a_pos;
@@ -146,8 +154,12 @@ export class Engine {
     if (this._texPath[kind] === path) return
     this._texPath[kind] = path
     if (!path) { this.tex[kind] = null; return }
-    try { this.tex[kind] = await loadTexture(this.gl, 'file://' + path.replace(/\\/g, '/')) }
-    catch { this.tex[kind] = null }
+    try { this.tex[kind] = await loadTexture(this.gl, fileUrl(path)) }
+    catch (e) {
+      this.tex[kind] = null
+      // Don't fail silently — a render that can't load its logo/bg should say so.
+      console.error(`Visiblazer: failed to load ${kind} image "${path}": ${(e && e.message) || e}`)
+    }
   }
 
   setVideoBackground(path) {

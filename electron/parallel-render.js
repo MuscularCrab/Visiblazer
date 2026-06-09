@@ -76,6 +76,12 @@ class ParallelRender {
       audioPath: o.audioPath, startSec, durSec, audioBitrateK: o.audioBitrateK, outPath: audioFile
     })).then(() => null, (e) => e)
 
+    // Copy user image assets (logo, bg image) into the local temp dir and point
+    // the workers at the copies. The picked path may be on a mapped/network drive
+    // the spawned workers can't reach even though the main process can — the
+    // "logo shows in preview but not the full render" cause.
+    const localVisual = this._localizeAssets(o.visual)
+
     // In dev (`electron .`) the app path must be passed as argv; a packaged exe
     // loads its own app, so argv stays empty.
     const electronExe = process.execPath
@@ -84,6 +90,7 @@ class ParallelRender {
     const runChild = (s, i) => new Promise((resolve, reject) => {
       const segOpts = {
         ...o,
+        visual: localVisual,
         startSec: s.startFrame / fps,
         durSec: s.frames / fps,
         outPath: segPaths[i],
@@ -181,10 +188,34 @@ class ParallelRender {
     })
   }
 
+  // Copy logo/bg-image to local temp so workers never depend on the source drive
+  // (mapped/network/removable). Falls back to the original path if a copy fails
+  // (e.g. the main process can't read it either) so nothing regresses.
+  _localizeAssets(visual) {
+    this._assetFiles = []
+    const v = JSON.parse(JSON.stringify(visual || {}))
+    const localize = (src, name) => {
+      if (!src) return src
+      try {
+        const dst = path.join(this.tmpDir, name + (path.extname(src) || '.png'))
+        fs.copyFileSync(src, dst)
+        this._assetFiles.push(dst)
+        return dst
+      } catch (e) {
+        console.error(`Visiblazer: could not stage asset "${src}" locally (${e && e.message || e}); workers will use the original path`)
+        return src
+      }
+    }
+    if (v.logo) v.logo.path = localize(v.logo.path, 'asset_logo')
+    if (v.background && v.background.type === 'image') v.background.image = localize(v.background.image, 'asset_bg')
+    return v
+  }
+
   _cleanup(segPaths, listFile, audioFile) {
     for (const p of segPaths || []) { try { fs.unlinkSync(p) } catch {} }
     if (listFile) { try { fs.unlinkSync(listFile) } catch {} }
     if (audioFile) { try { fs.unlinkSync(audioFile) } catch {} }
+    for (const p of this._assetFiles || []) { try { fs.unlinkSync(p) } catch {} }
   }
 }
 
