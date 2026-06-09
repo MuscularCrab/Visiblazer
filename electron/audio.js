@@ -42,10 +42,11 @@ function decode(ffmpegPath, input, outPcm, totalDur, onProgress) {
 }
 
 class Analysis {
-  constructor(fd, pcmPath, sampleCount) {
+  constructor(fd, pcmPath, sampleCount, ownsFile = true) {
     this.fd = fd
     this.pcmPath = pcmPath
     this.sampleCount = sampleCount
+    this.ownsFile = ownsFile     // segment children share the parent's PCM — they must not delete it
     this.sampleRate = SR
     this.duration = sampleCount / SR
     this.totalFrames = Math.max(1, Math.round(this.duration * 60))
@@ -104,8 +105,16 @@ class Analysis {
 
   close() {
     try { fs.closeSync(this.fd) } catch {}
-    try { fs.unlinkSync(this.pcmPath) } catch {}
+    if (this.ownsFile) { try { fs.unlinkSync(this.pcmPath) } catch {} }
   }
+}
+
+// Open an Analysis over an already-decoded PCM file (segment children reuse the
+// parent's decode instead of re-running ffmpeg). ownsFile=false so closing a
+// child never deletes the shared PCM out from under its siblings.
+function openExisting(pcmPath, sampleCount) {
+  const fd = fs.openSync(pcmPath, 'r')
+  return new Analysis(fd, pcmPath, sampleCount, false)
 }
 
 async function open(ffmpegPath, ffprobePath, input, tmpDir, onProgress) {
@@ -119,4 +128,4 @@ async function open(ffmpegPath, ffprobePath, input, tmpDir, onProgress) {
   return new Analysis(fd, outPcm, sampleCount)
 }
 
-module.exports = { open, SR, SPF }
+module.exports = { open, openExisting, SR, SPF }

@@ -6,6 +6,10 @@ const fs = require('fs')
 const ffmpeg = require('./ffmpeg')
 const audio = require('./audio')
 const { RenderJob, estimate } = require('./render')
+const { ParallelRender } = require('./parallel-render')
+
+const PRELOAD = path.join(__dirname, 'preload.js')
+const INDEX_HTML = path.join(__dirname, '..', 'src', 'index.html')
 
 const TMP = path.join(app.getPath('temp'), 'visiblazer')
 const PRESETS = path.join(app.getPath('userData'), 'presets')
@@ -15,7 +19,7 @@ const state = { win: null, enc: null, analysis: null, inputPath: null, job: null
 
 // Headless end-to-end smoke test: VISIBLAZER_SELFTEST=<audiofile> npm start
 // Renders 2s of the radial style and exits. Software GL so it runs anywhere.
-if (process.env.VISIBLAZER_SELFTEST && !process.env.VISIBLAZER_HW) {
+if (process.env.VISIBLAZER_SELFTEST && !process.env.VISIBLAZER_HW && !process.env.VISIBLAZER_SEG) {
   app.commandLine.appendSwitch('use-gl', 'angle')
   app.commandLine.appendSwitch('use-angle', 'swiftshader')
   app.commandLine.appendSwitch('enable-unsafe-swiftshader')
@@ -47,6 +51,10 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Segment-render child process (spawned by ParallelRender): render one chunk
+  // headlessly to a file and exit — its own main thread + GPU process is the
+  // whole point, so it must not boot the normal UI.
+  if (process.env.VISIBLAZER_SEG) { runSegmentChild(process.env.VISIBLAZER_SEG); return }
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
@@ -157,9 +165,13 @@ ipcMain.handle('start-render', async (_e, o) => {
     style: o.style, ap: o.ap, visual: o.visual
   }
 
-  const job = new RenderJob(state.win, a, opts, {
-    onProgress: (p) => { if (state.win) state.win.webContents.send('render-progress', p) }
-  })
+  const onProgress = (p) => { if (state.win) state.win.webContents.send('render-progress', p) }
+  // Segment-parallel for full renders; ~1.7x on a single GPU (K=3 is the sweet
+  // spot before the shared-GPU/PCIe ceiling). Test renders stay single-process.
+  const concurrency = o.test ? 1 : (o.concurrency || Number(process.env.VISIBLAZER_PARALLEL) || 3)
+  const job = concurrency > 1
+    ? new ParallelRender(a, opts, { onProgress }, { concurrency, preload: PRELOAD, indexHtml: INDEX_HTML, tmpDir: TMP })
+    : new RenderJob(state.win, a, opts, { onProgress })
   state.job = job
   try {
     const res = await job.run()
@@ -212,12 +224,48 @@ async function runSelfTest(win) {
       bitrateK: 12000, audioBitrateK: 320, audioPath: input, startSec: 0, durSec: Number(process.env.VISIBLAZER_SELFTEST_DUR) || 1,
       outPath: path.join(TMP, 'selftest.mp4'), style: process.env.VISIBLAZER_SELFTEST_STYLE || 'radial', ap: AP, visual: V
     }
-    const job = new RenderJob(win, a, opts, { onProgress: (p) => process.stdout.write(`\r${p.done}/${p.total} ${p.fps.toFixed(0)}fps`) })
+    const K = Number(process.env.VISIBLAZER_PARALLEL) || 1
+    const onProgress = (p) => process.stdout.write(`\r${p.done}/${p.total} ${p.fps.toFixed(0)}fps${p.workers ? ' x' + p.workers : ''}`)
+    const job = K > 1
+      ? new ParallelRender(a, opts, { onProgress }, { concurrency: K, preload: PRELOAD, indexHtml: INDEX_HTML, tmpDir: TMP })
+      : new RenderJob(win, a, opts, { onProgress })
     const res = await job.run()
     process.stdout.write('\n' + 'SELFTEST_RESULT ' + JSON.stringify(res) + '\n')
     app.exit(res.cancelled ? 1 : 0)
   } catch (e) {
     console.error('SELFTEST_FAIL ' + (e && e.stack || e))
+    app.exit(2)
+  }
+}
+
+// One segment of a parallel render, in its own process. Reads {pcmPath,
+// sampleCount, opts} from a temp JSON, renders the chunk to opts.outPath, and
+// streams "PROGRESS <done>" lines so the parent can aggregate fps/ETA.
+async function runSegmentChild(cfgPath) {
+  let a
+  try {
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    a = audio.openExisting(cfg.pcmPath, cfg.sampleCount)
+    const win = new BrowserWindow({
+      show: false, width: 480, height: 270,
+      webPreferences: {
+        preload: PRELOAD, contextIsolation: true, nodeIntegration: false,
+        sandbox: false, backgroundThrottling: false, webSecurity: false
+      }
+    })
+    win.removeMenu()
+    await win.loadFile(INDEX_HTML)
+    await new Promise((r) => setTimeout(r, 250))   // let the page's Engine register its port listener
+    const job = new RenderJob(win, a, cfg.opts, {
+      onProgress: (p) => process.stdout.write('PROGRESS ' + p.done + '\n')
+    })
+    const res = await job.run()
+    a.close()
+    process.stdout.write('SEG_DONE ' + JSON.stringify(res) + '\n')
+    app.exit(res.cancelled ? 1 : 0)
+  } catch (e) {
+    if (a) try { a.close() } catch {}
+    process.stderr.write('SEG_FAIL ' + (e && e.stack || e) + '\n')
     app.exit(2)
   }
 }

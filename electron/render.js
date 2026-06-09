@@ -45,10 +45,18 @@ class RenderJob {
     const wantWave = o.style === 'waveform' || o.style === 'ring'
     let prev = new Float32Array(ap.barCount)
 
+    // Parallel segments start mid-stream, so prime the band smoothing with a few
+    // frames before the segment's first frame — the initial-state error decays as
+    // smoothing^n, so the seam matches a continuous pass. Segment 0 starts cold.
+    for (let w = o.warmupFrames || 0; w > 0; w--) {
+      prev = this.analysis.frame(startFrame - w, ap, prev, wantWave).bands
+    }
+
     const args = buildArgs({
       width: o.width, height: o.height, fps: o.fps, encoder: o.encoder,
       bitrateK: o.bitrateK, audioBitrateK: o.audioBitrateK,
       audioPath: o.audioPath, startSec: o.startSec || 0, durSec: o.durSec, outPath: o.outPath,
+      videoOnly: o.videoOnly, totalFrames: total,
       bgVideo: (o.visual && o.visual.background && o.visual.background.type === 'video') ? o.visual.background.video : null,
       bgVideoOpacity: o.visual && o.visual.background ? o.visual.background.videoOpacity : 1
     })
