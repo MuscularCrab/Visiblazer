@@ -119,19 +119,26 @@ function buildArgs(o) {
   if (o.bgVideo) {
     // input 1: looped background video; input 2: audio span.
     a.push('-stream_loop', '-1', '-i', o.bgVideo)
-    if (o.startSec > 0) a.push('-ss', String(o.startSec))
-    if (o.durSec) a.push('-t', String(o.durSec))
-    a.push('-i', o.audioPath)
+    if (!o.videoOnly) {
+      if (o.startSec > 0) a.push('-ss', String(o.startSec))
+      if (o.durSec) a.push('-t', String(o.durSec))
+      a.push('-i', o.audioPath)
+    }
     // The visualizer (rendered on black, vflipped upright) is screened over the
     // frame-rate-matched, cover-scaled bg video — additive light, no alpha needed.
     const op = (o.bgVideoOpacity == null ? 1 : o.bgVideoOpacity)
     const bg = `[1:v]fps=${o.fps},scale=${o.width}:${o.height}:force_original_aspect_ratio=increase,crop=${o.width}:${o.height},setsar=1,format=rgba,colorchannelmixer=rr=${op}:gg=${op}:bb=${op}[bg]`
     const fg = `[0:v]vflip,format=rgba[fg]`
-    a.push('-filter_complex', `${bg};${fg};[bg][fg]blend=all_mode=screen[v]`, '-map', '[v]', '-map', '2:a:0')
+    a.push('-filter_complex', `${bg};${fg};[bg][fg]blend=all_mode=screen[v]`, '-map', '[v]')
+    if (!o.videoOnly) a.push('-map', '2:a:0')
   } else {
-    if (o.startSec > 0) a.push('-ss', String(o.startSec))
-    if (o.durSec) a.push('-t', String(o.durSec))
-    a.push('-i', o.audioPath, '-map', '0:v:0', '-map', '1:a:0')
+    if (!o.videoOnly) {
+      if (o.startSec > 0) a.push('-ss', String(o.startSec))
+      if (o.durSec) a.push('-t', String(o.durSec))
+      a.push('-i', o.audioPath, '-map', '0:v:0', '-map', '1:a:0')
+    } else {
+      a.push('-map', '0:v:0')
+    }
     // gl.readPixels returns rows bottom-to-top; vflip makes the encoded frame upright.
     a.push('-vf', 'vflip')
   }
@@ -155,7 +162,28 @@ function buildArgs(o) {
   } else {
     a.push('-c:v', 'libx264', '-preset', 'medium', '-b:v', `${o.bitrateK}k`, '-pix_fmt', 'yuv420p')
   }
-  a.push('-c:a', 'aac', '-b:a', `${o.audioBitrateK || 320}k`, '-shortest', o.outPath)
+  if (o.videoOnly) {
+    // Parallel-segment render: no audio, and a hard frame cap so a looped bg
+    // video can't run past the segment (the rawvideo input alone would bound
+    // it, but the cap is required once an infinite [bg] is in the graph).
+    // Audio is muxed once at the concat step.
+    if (o.totalFrames) a.push('-frames:v', String(o.totalFrames))
+  } else {
+    a.push('-c:a', 'aac', '-b:a', `${o.audioBitrateK || 320}k`, '-shortest')
+  }
+  a.push(o.outPath)
+  return a
+}
+
+// Losslessly stitch the parallel segment files — same encoder params and each
+// starts on a keyframe, so -c:v copy concatenates them seamlessly — and mux the
+// audio span in the same pass.
+function buildConcatArgs(o) {
+  const a = ['-y', '-f', 'concat', '-safe', '0', '-i', o.listFile]
+  if (o.startSec > 0) a.push('-ss', String(o.startSec))
+  if (o.durSec) a.push('-t', String(o.durSec))
+  a.push('-i', o.audioPath, '-map', '0:v:0', '-map', '1:a:0',
+    '-c:v', 'copy', '-c:a', 'aac', '-b:a', `${o.audioBitrateK || 320}k`, '-shortest', o.outPath)
   return a
 }
 
@@ -163,4 +191,4 @@ function spawnRender(ffmpegPath, args) {
   return spawn(ffmpegPath, args, { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true })
 }
 
-module.exports = { detect, buildArgs, spawnRender, runSync }
+module.exports = { detect, buildArgs, buildConcatArgs, spawnRender, runSync }
