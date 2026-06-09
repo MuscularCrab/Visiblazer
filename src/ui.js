@@ -182,7 +182,7 @@ $('fullRender').onclick = async () => {
   const out = await api.chooseOutput()
   if (!out) return
   const c = readControls()
-  runRender({ outPath: out, startSec: 0, durSec: null, style: c.style, ap: c.ap, visual: c.visual, bitrateK: c.bitrateK }, 'Rendering full set')
+  runRender({ outPath: out, startSec: 0, durSec: null, style: c.style, ap: c.ap, visual: c.visual, bitrateK: c.bitrateK, concurrency: parseInt($('concurrency').value, 10) }, 'Rendering full set')
 }
 $('cancelRender').onclick = () => api.cancelRender()
 $('closeOverlay').onclick = () => $('renderOverlay').classList.add('hidden')
