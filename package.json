@@ -1,6 +1,6 @@
 {
   "name": "visiblazer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Offline GPU audio visualizer that renders DJ sets to 1080p60 H.264 (NVENC).",
   "author": "DJ Windy (djwindy.com)",
   "license": "MIT",
