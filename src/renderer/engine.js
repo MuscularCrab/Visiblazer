@@ -339,13 +339,20 @@ export class Engine {
     return buf
   }
 
-  _attach(port, meta) {
+  async _attach(port, meta) {
     this._renderMode = true
     this.style = meta.style
     this.visual = meta.visual
     const W = meta.width, H = meta.height
     const nv12 = meta.pixfmt === 'nv12'
     if (nv12) this._initNV12(W, H)
+    // A child render process starts with a blank engine — it never received the
+    // interactive setTexture() calls the main window made — so load the assets
+    // referenced by this render before signalling ready. Idempotent in the main
+    // window (setTexture no-ops when the path is unchanged).
+    const bg = meta.visual.background || {}
+    await this.setTexture('logo', (meta.visual.logo && meta.visual.logo.path) || null)
+    await this.setTexture('bg', bg.type === 'image' ? bg.image : null)
     port.onmessage = (ev) => {
       const m = ev.data
       if (m.type === 'produce') {

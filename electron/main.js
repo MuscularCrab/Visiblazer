@@ -214,6 +214,7 @@ async function runSelfTest(win) {
   }
   const AP = { fftSize: 2048, barCount: 96, gain: 1.2, smoothing: 0.6, minDb: -70, maxDb: -12 }
   if (process.env.VISIBLAZER_SELFTEST_BGVIDEO) { V.background.type = 'video'; V.background.video = process.env.VISIBLAZER_SELFTEST_BGVIDEO }
+  if (process.env.VISIBLAZER_SELFTEST_LOGO) V.logo.path = process.env.VISIBLAZER_SELFTEST_LOGO
   try {
     const enc = getEncoder()
     if (!enc.ok) throw new Error(enc.message)
