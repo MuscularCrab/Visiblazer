@@ -61,6 +61,32 @@ void main(){ vec3 c=texture(u_scene,v_uv).rgb + texture(u_bloom,v_uv).rgb*u_glow
 const PRESENT_FS = `#version 300 es
 precision highp float; in vec2 v_uv; uniform sampler2D u_tex; uniform float u_gain; out vec4 o; void main(){ o=vec4(texture(u_tex,v_uv).rgb*u_gain,1.0); }`
 
+// NV12 packing: convert the final RGBA frame to BT.709 limited-range Y'CbCr on
+// the GPU so the readback is ~3MB (1.5 bytes/px) instead of 8MB RGBA, and feeds
+// NVENC its native format directly (no rgba->yuv in ffmpeg). Each RGBA output
+// texel carries 4 packed bytes, so the planes are W/4 wide.
+const YUV_HEAD = `#version 300 es
+precision highp float;
+uniform sampler2D u_tex; out vec4 o;
+float Yof(vec3 c){ float y=0.2126*c.r+0.7152*c.g+0.0722*c.b; return (16.0+219.0*y)/255.0; }
+vec2 CbCr(vec3 c){ float y=0.2126*c.r+0.7152*c.g+0.0722*c.b;
+  return vec2((128.0+224.0*((c.b-y)/1.8556))/255.0, (128.0+224.0*((c.r-y)/1.5748))/255.0); }`
+
+// Y plane: 4 horizontal luma samples per output texel -> (W/4 x H).
+const YPACK_FS = YUV_HEAD + `
+void main(){ int x=int(gl_FragCoord.x)*4, y=int(gl_FragCoord.y);
+  o=vec4(Yof(texelFetch(u_tex,ivec2(x,y),0).rgb), Yof(texelFetch(u_tex,ivec2(x+1,y),0).rgb),
+         Yof(texelFetch(u_tex,ivec2(x+2,y),0).rgb), Yof(texelFetch(u_tex,ivec2(x+3,y),0).rgb)); }`
+
+// UV plane (NV12 interleave): 2 chroma samples/texel, each the 2x2 source
+// average -> (W/4 x H/2), giving U0 V0 U1 V1.
+const UVPACK_FS = YUV_HEAD + `
+vec3 avg(int x,int y){ return 0.25*(texelFetch(u_tex,ivec2(x,y),0).rgb+texelFetch(u_tex,ivec2(x+1,y),0).rgb
+  +texelFetch(u_tex,ivec2(x,y+1),0).rgb+texelFetch(u_tex,ivec2(x+1,y+1),0).rgb); }
+void main(){ int ox=int(gl_FragCoord.x), oy=int(gl_FragCoord.y);
+  vec2 a=CbCr(avg(ox*4, oy*2)), b=CbCr(avg(ox*4+2, oy*2));
+  o=vec4(a.x,a.y,b.x,b.y); }`
+
 export class Engine {
   constructor(canvas) {
     const gl = canvas.getContext('webgl2', { antialias: true, preserveDrawingBuffer: false })
@@ -288,20 +314,52 @@ export class Engine {
     })
   }
 
+  // Build the NV12 pack programs + half/quarter-size target FBOs once.
+  _initNV12(W, H) {
+    if (this.pY) return
+    const gl = this.gl
+    this.pY = program(gl, FS_VS, YPACK_FS); this.uY = uniforms(gl, this.pY, ['u_tex'])
+    this.pUV = program(gl, FS_VS, UVPACK_FS); this.uUV = uniforms(gl, this.pUV, ['u_tex'])
+    this.nvY = createFBO(gl, W >> 2, H)        // 4 luma / texel
+    this.nvUV = createFBO(gl, W >> 2, H >> 1)  // 2 chroma pairs / texel
+  }
+
+  // Pack this.output into an NV12 byte buffer (Y plane then interleaved UV).
+  _packNV12(W, H) {
+    const gl = this.gl
+    const buf = new Uint8Array(W * H + (W * H >> 1))
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.output.tex)
+    gl.bindVertexArray(this.vaoFS)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.nvY.fbo); gl.viewport(0, 0, W >> 2, H)
+    gl.useProgram(this.pY); gl.uniform1i(this.uY.u_tex, 0); gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.readPixels(0, 0, W >> 2, H, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(buf.buffer, 0, W * H))
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.nvUV.fbo); gl.viewport(0, 0, W >> 2, H >> 1)
+    gl.useProgram(this.pUV); gl.uniform1i(this.uUV.u_tex, 0); gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.readPixels(0, 0, W >> 2, H >> 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(buf.buffer, W * H, W * H >> 1))
+    return buf
+  }
+
   _attach(port, meta) {
     this._renderMode = true
     this.style = meta.style
     this.visual = meta.visual
     const W = meta.width, H = meta.height
+    const nv12 = meta.pixfmt === 'nv12'
+    if (nv12) this._initNV12(W, H)
     port.onmessage = (ev) => {
       const m = ev.data
       if (m.type === 'produce') {
         try {
           this._pipeline({ bands: m.bands, bass: m.bass, time: m.time, waveform: m.waveform }, false)
           const gl = this.gl
-          const buf = new Uint8Array(W * H * 4)
-          gl.bindFramebuffer(gl.FRAMEBUFFER, this.output.fbo)
-          gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+          let buf
+          if (nv12) {
+            buf = this._packNV12(W, H)
+          } else {
+            buf = new Uint8Array(W * H * 4)
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.output.fbo)
+            gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+          }
           // Send by structured-clone copy — MessagePortMain (renderer->main) does
           // not carry a transferred ArrayBuffer, it silently drops the message.
           port.postMessage({ type: 'frame', frame: m.frame, data: buf })

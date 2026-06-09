@@ -166,9 +166,10 @@ ipcMain.handle('start-render', async (_e, o) => {
   }
 
   const onProgress = (p) => { if (state.win) state.win.webContents.send('render-progress', p) }
-  // Segment-parallel for full renders; ~1.7x on a single GPU (K=3 is the sweet
-  // spot before the shared-GPU/PCIe ceiling). Test renders stay single-process.
-  const concurrency = o.test ? 1 : (o.concurrency || Number(process.env.VISIBLAZER_PARALLEL) || 3)
+  // Segment-parallel for full renders. With NV12 readback a single pipeline
+  // nearly saturates the GPU (~169fps), so parallel only adds ~20% (K=2 sweet
+  // spot); it matters more for the rgba video-bg path. Test renders stay single.
+  const concurrency = o.test ? 1 : (o.concurrency || Number(process.env.VISIBLAZER_PARALLEL) || 2)
   const job = concurrency > 1
     ? new ParallelRender(a, opts, { onProgress }, { concurrency, preload: PRELOAD, indexHtml: INDEX_HTML, tmpDir: TMP })
     : new RenderJob(state.win, a, opts, { onProgress })

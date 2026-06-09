@@ -115,7 +115,7 @@ function detect() {
 // width/height/fps fixed; encoder is 'h264_nvenc' or 'libx264'. When startSec/
 // durSec are set (test render) only that audio span is muxed.
 function buildArgs(o) {
-  const a = ['-y', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${o.width}x${o.height}`, '-r', String(o.fps), '-i', 'pipe:0']
+  const a = ['-y', '-f', 'rawvideo', '-pix_fmt', (o.pixfmt || 'rgba'), '-s', `${o.width}x${o.height}`, '-r', String(o.fps), '-i', 'pipe:0']
   if (o.bgVideo) {
     // input 1: looped background video; input 2: audio span.
     a.push('-stream_loop', '-1', '-i', o.bgVideo)

@@ -52,12 +52,17 @@ class RenderJob {
       prev = this.analysis.frame(startFrame - w, ap, prev, wantWave).bands
     }
 
+    const bgVideo = (o.visual && o.visual.background && o.visual.background.type === 'video') ? o.visual.background.video : null
+    // NV12 readback (3MB vs 8MB RGBA) feeds NVENC its native format. Video
+    // backgrounds stay RGBA — ffmpeg screen-blends them, which must be in RGB.
+    const pixfmt = (bgVideo || process.env.VISIBLAZER_FORCE_RGBA) ? 'rgba' : 'nv12'
+
     const args = buildArgs({
       width: o.width, height: o.height, fps: o.fps, encoder: o.encoder,
       bitrateK: o.bitrateK, audioBitrateK: o.audioBitrateK,
       audioPath: o.audioPath, startSec: o.startSec || 0, durSec: o.durSec, outPath: o.outPath,
-      videoOnly: o.videoOnly, totalFrames: total,
-      bgVideo: (o.visual && o.visual.background && o.visual.background.type === 'video') ? o.visual.background.video : null,
+      videoOnly: o.videoOnly, totalFrames: total, pixfmt,
+      bgVideo,
       bgVideoOpacity: o.visual && o.visual.background ? o.visual.background.videoOpacity : 1
     })
     const ff = spawnRender(o.ffmpegPath, args)
@@ -71,7 +76,7 @@ class RenderJob {
 
     const { port1, port2 } = new MessageChannelMain()
     this.port = port1
-    const meta = { width: o.width, height: o.height, style: o.style, visual: o.visual, total }
+    const meta = { width: o.width, height: o.height, style: o.style, visual: o.visual, total, pixfmt }
 
     const t0 = Date.now()
     let nextToSend = 0, nextToWrite = 0, paused = false

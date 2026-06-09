@@ -136,12 +136,12 @@
         <div class="row"><span>Render speed</span>
           <select id="concurrency">
             <option value="1">1 — single (lightest)</option>
-            <option value="2">2 — faster</option>
-            <option value="3" selected>3 — recommended</option>
+            <option value="2" selected>2 — recommended</option>
+            <option value="3">3 — more</option>
             <option value="4">4 — max</option>
           </select>
         </div>
-        <div class="kv"><span class="muted small">Renders the set in this many chunks at once. <b>3 ≈ 1.7× faster</b> on one GPU. The video is identical at any setting — only speed changes. Higher uses more GPU/RAM with little gain past 3; drop to 1 if the PC feels overloaded. Full renders only (not Quick Test).</span></div>
+        <div class="kv"><span class="muted small">Renders the set in this many chunks at once for extra speed — a modest top-up (most useful with a video background). Output is identical at any setting. Higher uses more GPU/RAM; <b>2 is a good default</b>, drop to 1 if the PC feels overloaded. Full renders only (not Quick Test).</span></div>
 
         <div class="testbox">
           <div class="row"><span>Test start (s)</span><input id="testStart" type="number" min="0" value="0" /></div>
