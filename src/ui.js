@@ -138,6 +138,15 @@ function showOverlay(title) {
   for (const id of ['playResult', 'revealResult', 'closeOverlay']) $(id).classList.add('hidden')
 }
 function onProgress(p) {
+  if (p.phase === 'finalize') {
+    // Frames are done; bar stays full while we stitch/mux + flush the encoder.
+    $('renderTitle').textContent = 'Finalizing'
+    $('renderFill').style.width = '100%'
+    $('renderStats').textContent = p.frac != null
+      ? `Stitching & muxing… ${(p.frac * 100).toFixed(0)}%${p.eta ? ` · ETA ${fmt(p.eta)}` : ''}`
+      : 'Finishing up…'
+    return
+  }
   $('renderFill').style.width = (p.done / p.total * 100).toFixed(1) + '%'
   $('renderStats').textContent =
     `${p.done.toLocaleString()} / ${p.total.toLocaleString()} frames · ${p.fps.toFixed(0)} fps · ETA ${fmt(p.eta)}`

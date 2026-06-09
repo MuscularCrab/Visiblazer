@@ -133,6 +133,9 @@ class RenderJob {
     try { port1.postMessage({ type: 'end' }) } catch {}
     try { port1.close() } catch {}
     try { ff.stdin.end() } catch {}
+    // All frames are in; ffmpeg still has to flush the NVENC lookahead/B-frame
+    // buffer and write the moov. Brief, but signal it so the UI isn't frozen at 0:00.
+    if (!this.cancelled && this.hooks.onProgress) this.hooks.onProgress({ phase: 'finalize' })
     await ffDone
 
     if (this._stalled != null) throw new Error('Renderer returned no frame near frame ' + this._stalled + ' (WebGL stall or error).')

@@ -175,20 +175,27 @@ function buildArgs(o) {
   return a
 }
 
-// Losslessly stitch the parallel segment files — same encoder params and each
-// starts on a keyframe, so -c:v copy concatenates them seamlessly — and mux the
-// audio span in the same pass.
-function buildConcatArgs(o) {
-  const a = ['-y', '-f', 'concat', '-safe', '0', '-i', o.listFile]
+// Encode just the audio span to AAC. Run this concurrently with the segment
+// renders so the final concat is a pure copy/remux with no audio encode on the
+// tail (which otherwise serializes a full-length AAC pass after the last frame).
+function buildAudioArgs(o) {
+  const a = ['-y']
   if (o.startSec > 0) a.push('-ss', String(o.startSec))
   if (o.durSec) a.push('-t', String(o.durSec))
-  a.push('-i', o.audioPath, '-map', '0:v:0', '-map', '1:a:0',
-    '-c:v', 'copy', '-c:a', 'aac', '-b:a', `${o.audioBitrateK || 320}k`, '-shortest', o.outPath)
+  a.push('-i', o.audioPath, '-vn', '-c:a', 'aac', '-b:a', `${o.audioBitrateK || 320}k`, o.outPath)
   return a
+}
+
+// Losslessly stitch the parallel segment files (same encoder params, each starts
+// on a keyframe) and mux the pre-encoded audio — a pure -c copy remux, so the
+// only cost is sequential I/O, not re-encoding.
+function buildConcatArgs(o) {
+  return ['-y', '-f', 'concat', '-safe', '0', '-i', o.listFile,
+    '-i', o.audioFile, '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy', '-shortest', o.outPath]
 }
 
 function spawnRender(ffmpegPath, args) {
   return spawn(ffmpegPath, args, { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true })
 }
 
-module.exports = { detect, buildArgs, buildConcatArgs, spawnRender, runSync }
+module.exports = { detect, buildArgs, buildAudioArgs, buildConcatArgs, spawnRender, runSync }

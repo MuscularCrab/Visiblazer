@@ -13,7 +13,7 @@ const fs = require('fs')
 const path = require('path')
 const { app } = require('electron')
 const { spawn } = require('child_process')
-const { buildConcatArgs, spawnRender } = require('./ffmpeg')
+const { buildAudioArgs, buildConcatArgs, spawnRender } = require('./ffmpeg')
 
 const WARMUP = 20   // smoothing frames primed before each segment (seam continuity)
 
@@ -30,6 +30,7 @@ class ParallelRender {
 
   cancel() {
     this.cancelled = true
+    try { this._audioProc && this._audioProc.kill() } catch {}
     for (const c of this.children) { try { c && c.kill() } catch {} }
   }
 
@@ -66,6 +67,14 @@ class ParallelRender {
     }
 
     fs.mkdirSync(this.tmpDir, { recursive: true })
+
+    // Encode the audio concurrently with the segment renders so the final concat
+    // is a pure remux with no audio pass on the tail. Resolve to the error (not
+    // reject) so an early cancel can't leave an unhandled rejection.
+    const audioFile = path.join(this.tmpDir, 'audio.m4a')
+    const audioP = this._encodeAudio(o.ffmpegPath, buildAudioArgs({
+      audioPath: o.audioPath, startSec, durSec, audioBitrateK: o.audioBitrateK, outPath: audioFile
+    })).then(() => null, (e) => e)
 
     // In dev (`electron .`) the app path must be passed as argv; a packaged exe
     // loads its own app, so argv stays empty.
@@ -116,26 +125,40 @@ class ParallelRender {
       this.cancel(); this._cleanup(segPaths); throw e
     }
     if (this.cancelled || results.some((r) => r && r.cancelled)) {
-      this._cleanup(segPaths); return { cancelled: true }
+      this._cleanup(segPaths, null, audioFile); return { cancelled: true }
     }
 
-    // Lossless concat + audio mux.
+    // Audio finished encoding during the renders, so concat is a pure remux —
+    // the only finalize cost is sequential I/O, reported as a 'finalize' phase.
+    const audioErr = await audioP
+    if (audioErr) { this._cleanup(segPaths, null, audioFile); throw audioErr }
     const listFile = path.join(this.tmpDir, 'concat.txt')
     fs.writeFileSync(listFile, segPaths.map((p) => `file '${p.replace(/\\/g, '/')}'`).join('\n'))
-    await this._concat(o.ffmpegPath, buildConcatArgs({
-      listFile, audioPath: o.audioPath, startSec, durSec, audioBitrateK: o.audioBitrateK, outPath: o.outPath
-    }))
+    await this._concat(o.ffmpegPath, buildConcatArgs({ listFile, audioFile, outPath: o.outPath }), durSec)
 
-    this._cleanup(segPaths, listFile)
+    this._cleanup(segPaths, listFile, audioFile)
     const size = (() => { try { return fs.statSync(o.outPath).size } catch { return 0 } })()
     return { cancelled: false, outPath: o.outPath, bytes: size, frames: totalFrames, elapsed: (Date.now() - t0) / 1000, encoder: o.encoder, workers: K }
   }
 
-  _concat(ffmpegPath, args) {
+  _concat(ffmpegPath, args, totalSec) {
+    const finStart = Date.now()
     return new Promise((resolve, reject) => {
       const ff = spawnRender(ffmpegPath, args)
       let err = ''
-      ff.stderr.on('data', (d) => { err = (err + d.toString()).slice(-6000) })
+      ff.stderr.on('data', (d) => {
+        const s = d.toString(); err = (err + s).slice(-6000)
+        // Remux is fast but not instant on a long set; surface it as a finalize
+        // phase so the UI shows progress instead of a frozen ETA 0:00.
+        const m = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(s)
+        if (m && totalSec > 0 && this.hooks.onProgress) {
+          const t = (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3])
+          const frac = Math.min(1, t / totalSec)
+          const el = (Date.now() - finStart) / 1000
+          const rate = frac > 0 ? frac / el : 0
+          this.hooks.onProgress({ phase: 'finalize', frac, eta: rate > 0 ? (1 - frac) / rate : 0 })
+        }
+      })
       ff.on('error', reject)
       ff.on('close', (code) => code === 0
         ? resolve()
@@ -144,9 +167,24 @@ class ParallelRender {
     })
   }
 
-  _cleanup(segPaths, listFile) {
+  _encodeAudio(ffmpegPath, args) {
+    return new Promise((resolve, reject) => {
+      const ff = spawnRender(ffmpegPath, args)
+      this._audioProc = ff
+      let err = ''
+      ff.stderr.on('data', (d) => { err = (err + d.toString()).slice(-4000) })
+      ff.on('error', reject)
+      ff.on('close', (code) => code === 0
+        ? resolve()
+        : reject(new Error('audio encode exited ' + code + '\n' + err.split(/\r?\n/).slice(-8).join('\n'))))
+      try { ff.stdin.end() } catch {}
+    })
+  }
+
+  _cleanup(segPaths, listFile, audioFile) {
     for (const p of segPaths || []) { try { fs.unlinkSync(p) } catch {} }
     if (listFile) { try { fs.unlinkSync(listFile) } catch {} }
+    if (audioFile) { try { fs.unlinkSync(audioFile) } catch {} }
   }
 }
 

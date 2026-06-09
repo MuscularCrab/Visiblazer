@@ -258,7 +258,8 @@ async function runSegmentChild(cfgPath) {
     await win.loadFile(INDEX_HTML)
     await new Promise((r) => setTimeout(r, 250))   // let the page's Engine register its port listener
     const job = new RenderJob(win, a, cfg.opts, {
-      onProgress: (p) => process.stdout.write('PROGRESS ' + p.done + '\n')
+      // Only the parent reports the finalize phase; a child emits frame counts.
+      onProgress: (p) => { if (p.done != null) process.stdout.write('PROGRESS ' + p.done + '\n') }
     })
     const res = await job.run()
     a.close()
